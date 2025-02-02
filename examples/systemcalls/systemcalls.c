@@ -1,3 +1,23 @@
+/*******************************************************************************
+ * Copyright (C) 2025 by Abhirath Koushik
+ *
+ * Redistribution, modification or use of this software in source or binary
+ * forms is permitted as long as the files maintain this copyright. Users are
+ * permitted to modify this and use it to learn about the field of embedded
+ * software. Abhirath Koushik and the University of Colorado are not liable for
+ * any misuse of this material.
+ * ****************************************************************************/
+
+/**
+ * @file    systemcalls.c
+ * @brief   This script contains various functions to execute system calls using system, fork and execv.
+ *
+ *
+ * @author  Abhirath Koushik
+ * @date    02-02-2025
+ *
+ */
+
 #include "systemcalls.h"
 #include <sys/types.h>
 #include <sys/wait.h>
