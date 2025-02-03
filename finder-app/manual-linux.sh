@@ -12,7 +12,6 @@ BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
 CROSS_COMPILE=aarch64-none-linux-gnu-
-CROSS_TOOLCHAIN_PATH=/home/abhirath-vm-ubuntu/AESD_files/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu
 
 if [ $# -lt 1 ]
 then
@@ -96,13 +95,15 @@ echo "Library dependencies"
 ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "Shared library"
 
+SYSROOT_PATH=$(${CROSS_COMPILE}gcc -print-sysroot)
+
 # Copy the Program Interpreter of the Cross Compiler Toolchain
-cp ${CROSS_TOOLCHAIN_PATH}/libc/lib/ld-linux-aarch64.so.1 ${OUTDIR}/rootfs/lib/
+cp ${SYSROOT_PATH}/lib/ld-linux-aarch64.so.1 ${OUTDIR}/rootfs/lib/
 
 # Copy the Library Files of the Cross Compiler Toolchain
-cp ${CROSS_TOOLCHAIN_PATH}/libc/lib64/libm.so.6 ${OUTDIR}/rootfs/lib64/
-cp ${CROSS_TOOLCHAIN_PATH}/libc/lib64/libresolv.so.2 ${OUTDIR}/rootfs/lib64/
-cp ${CROSS_TOOLCHAIN_PATH}/libc/lib64/libc.so.6 ${OUTDIR}/rootfs/lib64/
+cp ${SYSROOT_PATH}/lib64/libm.so.6 ${OUTDIR}/rootfs/lib64/
+cp ${SYSROOT_PATH}/lib64/libresolv.so.2 ${OUTDIR}/rootfs/lib64/
+cp ${SYSROOT_PATH}/lib64/libc.so.6 ${OUTDIR}/rootfs/lib64/
 
 # Creating the Device Nodes
 sudo rm -f /dev/null
