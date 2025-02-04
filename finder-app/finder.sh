@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 
 #  Copyright (C) 2025 by Abhirath Koushik
