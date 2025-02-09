@@ -12,17 +12,19 @@
 #  @author  Abhirath Koushik
 #  @date    01-26-2025
 
-# GCC Compilation for Native x86-64 version
-default:
-	gcc -g -Wall -c -o writer.o writer.c
-	gcc -g -Wall -I/ writer.o -o writer
+# Check and use gcc cross compile if variable is defined
+ifdef CROSS_COMPILE
+      CC=$(CROSS_COMPILE)gcc
+else
+# Else use native gcc compile
+    CC=gcc
+endif
 
-# GCC Compilation for Cross-Compiling Arm Aarch64 version
-cross:
-	$(CROSS_COMPILE)gcc -g -Wall -c -o writer.o writer.c
-	$(CROSS_COMPILE)gcc -g -Wall -I/ writer.o -o writer
+all: writer
+writer: writer.c
+	$(CC) -o writer writer.c
 
 # Cleanup of the Writer Script and .o files
+.PHONY: clean
 clean:
-	rm -rf ./writer
-	rm -f *.o
+	rm -f *.o writer
