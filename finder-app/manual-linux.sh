@@ -35,7 +35,6 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # Set up environment
-    export PATH=/home/abhirath-vm-ubuntu/AESD_files/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/bin:$PATH
     export ARCH=arm64
     export CROSS_COMPILE=aarch64-none-linux-gnu-
 
@@ -64,7 +63,6 @@ then
 fi
 
 # Create a new rootfs directory
-export PATH=/home/abhirath-vm-ubuntu/AESD_files/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/bin:$PATH
 mkdir -p ${OUTDIR}/rootfs
 cd ${OUTDIR}/rootfs
 
@@ -115,7 +113,7 @@ sudo mknod -m 666 /dev/console c 5 1
 # Clean and build the writer utility
 cd ${FINDER_APP_DIR}
 make clean
-make cross CROSS_COMPILE=${CROSS_COMPILE}
+make CROSS_COMPILE=${CROSS_COMPILE}
 
 # Copy the finder related scripts and executables to the /home directory on the target rootfs
 cp writer ${OUTDIR}/rootfs/home/

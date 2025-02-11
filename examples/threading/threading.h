@@ -1,3 +1,23 @@
+/*******************************************************************************
+ * Copyright (C) 2025 by Abhirath Koushik
+ *
+ * Redistribution, modification or use of this software in source or binary
+ * forms is permitted as long as the files maintain this copyright. Users are
+ * permitted to modify this and use it to learn about the field of embedded
+ * software. Abhirath Koushik and the University of Colorado are not liable for
+ * any misuse of this material.
+ * ****************************************************************************/
+
+/**
+ * @file    threading.h
+ * @brief   This header file is used to define the Structure and Functions related to Threading.
+ *
+ *
+ * @author  Abhirath Koushik
+ * @date    02-08-2025
+ *
+ */
+
 #include <stdbool.h>
 #include <pthread.h>
 
@@ -8,17 +28,9 @@
  * the joiner thread.
  */
 struct thread_data{
-    /*
-     * TODO: add other values your thread will need to manage
-     * into this structure, use this structure to communicate
-     * between the start_thread_obtaining_mutex function and
-     * your thread implementation.
-     */
-
-    /**
-     * Set to true if the thread completed with success, false
-     * if an error occurred.
-     */
+    pthread_mutex_t *mutex;
+    int wait_to_obtain_ms;
+    int wait_to_release_ms;
     bool thread_complete_success;
 };
 
