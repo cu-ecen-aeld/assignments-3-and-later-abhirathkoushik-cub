@@ -20,12 +20,13 @@ else
     CC ?= gcc
 endif
 
-# Using LDFLAGS for correct linking
-LDFLAGS += -Wl,--hash-style=gnu
+CFLAGS ?= -g -Wall -Werror
+TARGET ?= aesdsocket
+LDFLAGS ?= -lpthread -lrt
 
 all: aesdsocket
 aesdsocket: aesdsocket.c
-	$(CC) -o aesdsocket aesdsocket.c -Wall -Werror
+	$(CC) $(CFLAGS) $^ -o $@ $(INCLUDES) $(LDFLAGS)
 
 # Cleanup of the aesdsocket Script and .o files
 .PHONY: clean
