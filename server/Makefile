@@ -20,6 +20,9 @@ else
     CC ?= gcc
 endif
 
+# Using LDFLAGS for correct linking
+LDFLAGS += -Wl,--hash-style=gnu
+
 all: aesdsocket
 aesdsocket: aesdsocket.c
 	$(CC) -o aesdsocket aesdsocket.c -Wall -Werror
