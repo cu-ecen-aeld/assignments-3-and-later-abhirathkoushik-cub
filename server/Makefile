@@ -14,10 +14,10 @@
 
 # Check and use gcc cross compile if variable is defined
 ifdef CROSS_COMPILE
-      CC=$(CROSS_COMPILE)gcc
+      CC ?= $(CROSS_COMPILE)gcc
 else
 # Else use native gcc compile
-    CC=gcc
+    CC ?= gcc
 endif
 
 all: aesdsocket
