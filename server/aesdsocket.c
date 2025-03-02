@@ -52,12 +52,12 @@ pthread_t timer_thread_id;
 struct thread_info {
     pthread_t thread_id;
     int client_fd;
-    LIST_ENTRY(thread_info) entries; // FreeBSD queue.h macro for singly linked list
+    LIST_ENTRY(thread_info) entries;
 };
 
 /* Global thread list head declaration */
 LIST_HEAD(thread_info_list, thread_info);
-struct thread_info_list thread_list;  // Will be initialized in main()
+struct thread_info_list thread_list;
 
 /*
  * This function is used to handle Signals to terminate the program and handle cleaup tasks.
@@ -123,7 +123,7 @@ void daemonize() {
  * This function is used to create and configure the timer thread for timestamps.
  *
  * Parameters:
- *   arg: ADD HERE
+ *   arg: Unused Argument
  * 
  * Returns:
  *   NULL
@@ -140,9 +140,11 @@ void *timer_thread(void *arg)
         char timestamp[128];
         time_t now = time(NULL);
         struct tm *tm_info = localtime(&now);
-        // Format the timestamp in an RFC 2822 compliant format
-        strftime(timestamp, sizeof(timestamp), "timestamp:%a, %d %b %Y %H:%M:%S %z\n", tm_info);
 
+        // Format the timestamp in a compliant format
+        strftime(timestamp, sizeof(timestamp), "timestamp:%a, %d %b %Y %H:%M:%S %z\n", tm_info);
+        
+        // Ensure atomic write to the file using a mutex.
         pthread_mutex_lock(&file_mutex);
         int file_fd = open(FILE_PATH, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (file_fd != -1) {
@@ -164,7 +166,7 @@ void *timer_thread(void *arg)
  * This is a Cleanup function called if a thread is cancelled or is exiting.
  *
  * Parameters:
- *   arg: ADD HERE
+ *   arg: Pointer to thread_info structure associated with the thread
  * 
  * Returns:
  *   None
@@ -186,10 +188,10 @@ void thread_cleanup(void *arg)
  * This is a Thread function to handle Client Connections.
  *
  * Parameters:
- *   arg: ADD HERE
+ *   arg: Pointer to thread_info structure containing client socket details.
  * 
  * Returns:
- *   None
+ *   NULL
  *  
  */
 void *handle_client(void *arg)
@@ -199,8 +201,7 @@ void *handle_client(void *arg)
     char buffer[BUFFER_SIZE];
     ssize_t bytes_received;
 
-    /* Register a cleanup handler so that if this thread is cancelled, it will
-       remove itself from the thread list and free its allocated memory. */
+    /* Register a cleanup handler to ensure thread cleanup on exit */
     pthread_cleanup_push(thread_cleanup, tinfo);
 
     while (1) {
@@ -246,7 +247,7 @@ void *handle_client(void *arg)
         }
     }
 
-    /* When done, the cleanup handler will remove the thread info and free memory */
+    // The cleanup handler will remove the thread info and free memory
     pthread_cleanup_pop(1);
     return NULL;
 }
