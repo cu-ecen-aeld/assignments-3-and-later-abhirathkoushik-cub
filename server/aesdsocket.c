@@ -146,7 +146,10 @@ void *timer_thread(void *arg)
         pthread_mutex_lock(&file_mutex);
         int file_fd = open(FILE_PATH, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (file_fd != -1) {
-            write(file_fd, timestamp, strlen(timestamp));
+            ssize_t ret = write(file_fd, timestamp, strlen(timestamp));
+            if(ret < 0) {
+                syslog(LOG_ERR, "Failed to write timestamp");
+            }
             close(file_fd);
         } else {
             syslog(LOG_ERR, "Failed to open file for timestamp writing");
