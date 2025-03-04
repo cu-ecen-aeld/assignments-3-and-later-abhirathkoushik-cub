@@ -29,12 +29,35 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <pthread.h>
+#include <sys/queue.h>
+#include <time.h>
 
 #define PORT "9000"
 #define BUFFER_SIZE 1024
 #define FILE_PATH "/var/tmp/aesdsocketdata"
 
-int server_fd=-1, client_fd=-1;
+// Global Variables
+volatile sig_atomic_t terminate_program = 0;
+int server_fd=-1;
+
+// Declaring Mutex Variables
+pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER; // Protects file write access
+pthread_mutex_t list_mutex = PTHREAD_MUTEX_INITIALIZER; // Protects access to the thread list
+
+// Declaring Timer Thread
+pthread_t timer_thread_id;
+
+/* Structure to hold thread information */
+struct thread_info {
+    pthread_t thread_id;
+    int client_fd;
+    LIST_ENTRY(thread_info) entries;
+};
+
+/* Global thread list head declaration */
+LIST_HEAD(thread_info_list, thread_info);
+struct thread_info_list thread_list;
 
 /*
  * This function is used to handle Signals to terminate the program and handle cleaup tasks.
@@ -48,22 +71,11 @@ int server_fd=-1, client_fd=-1;
 void signal_handler(int signo)
 {
     syslog(LOG_INFO, "Caught signal, exiting");
-
-    // Close open sockets
-    if (client_fd != -1) {
-        close(client_fd);
-    }
+    terminate_program = 1;
     if (server_fd != -1) {
         close(server_fd);
+        server_fd = -1;
     }
-
-    // Remove the temporary file created
-    remove(FILE_PATH);
-
-    // Close syslog
-    closelog();
-
-    exit(0);
 }
 
 /*
@@ -108,6 +120,140 @@ void daemonize() {
 }
 
 /*
+ * This function is used to create and configure the timer thread for timestamps.
+ *
+ * Parameters:
+ *   arg: Unused Argument
+ * 
+ * Returns:
+ *   NULL
+ *  
+ */
+void *timer_thread(void *arg)
+{
+    (void)arg; // Unused
+    while (!terminate_program) {
+        sleep(10);
+        if (terminate_program) {
+            break;
+        }
+        char timestamp[128];
+        time_t now = time(NULL);
+        struct tm *tm_info = localtime(&now);
+
+        // Format the timestamp in a compliant format
+        strftime(timestamp, sizeof(timestamp), "timestamp:%a, %d %b %Y %H:%M:%S %z\n", tm_info);
+        
+        // Ensure atomic write to the file using a mutex.
+        pthread_mutex_lock(&file_mutex);
+        int file_fd = open(FILE_PATH, O_WRONLY | O_APPEND | O_CREAT, 0644);
+        if (file_fd != -1) {
+            ssize_t ret = write(file_fd, timestamp, strlen(timestamp));
+            if(ret < 0) {
+                syslog(LOG_ERR, "Failed to write timestamp");
+            }
+            close(file_fd);
+        } else {
+            syslog(LOG_ERR, "Failed to open file for timestamp writing");
+        }
+        pthread_mutex_unlock(&file_mutex);
+    }
+    return NULL;
+}
+
+
+/*
+ * This is a Cleanup function called if a thread is cancelled or is exiting.
+ *
+ * Parameters:
+ *   arg: Pointer to thread_info structure associated with the thread
+ * 
+ * Returns:
+ *   None
+ *  
+ */
+void thread_cleanup(void *arg)
+{
+    struct thread_info *tinfo = (struct thread_info *)arg;
+    if (tinfo->client_fd != -1) {
+        close(tinfo->client_fd);
+    }
+    pthread_mutex_lock(&list_mutex);
+    LIST_REMOVE(tinfo, entries);
+    pthread_mutex_unlock(&list_mutex);
+    free(tinfo);
+}
+
+/*
+ * This is a Thread function to handle Client Connections.
+ *
+ * Parameters:
+ *   arg: Pointer to thread_info structure containing client socket details.
+ * 
+ * Returns:
+ *   NULL
+ *  
+ */
+void *handle_client(void *arg)
+{
+    struct thread_info *tinfo = (struct thread_info *)arg;
+    int client_fd = tinfo->client_fd;
+    char buffer[BUFFER_SIZE];
+    ssize_t bytes_received;
+
+    /* Register a cleanup handler to ensure thread cleanup on exit */
+    pthread_cleanup_push(thread_cleanup, tinfo);
+
+    while (1) {
+        bytes_received = recv(client_fd, buffer, BUFFER_SIZE, 0);
+        if (bytes_received <= 0) {
+            break;
+        }
+
+        /* Synchronize file writes using a mutex */
+        pthread_mutex_lock(&file_mutex);
+
+        // Open file for appending
+        int file_fd = open(FILE_PATH, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (file_fd == -1) {
+            syslog(LOG_ERR, "Failed to open file");
+            pthread_mutex_unlock(&file_mutex);
+            break;
+        }
+        if (write(file_fd, buffer, bytes_received) == -1) {
+            syslog(LOG_ERR, "Failed to write to file");
+            close(file_fd);
+            pthread_mutex_unlock(&file_mutex);
+            break;
+        }
+        close(file_fd);
+        pthread_mutex_unlock(&file_mutex);
+
+        /* If the received data ends with a newline, send the file content to the client */
+        if (buffer[bytes_received - 1] == '\n') {
+            int file_fd_read = open(FILE_PATH, O_RDONLY);
+            if (file_fd_read == -1) {
+                syslog(LOG_ERR, "Failed to open file for reading");
+                break;
+            }
+            ssize_t read_bytes;
+            while ((read_bytes = read(file_fd_read, buffer, BUFFER_SIZE)) > 0) {
+                if (send(client_fd, buffer, read_bytes, 0) == -1) {
+                    syslog(LOG_ERR, "Failed to send data to client");
+                    break;
+                }
+            }
+            close(file_fd_read);
+        }
+    }
+
+    // The cleanup handler will remove the thread info and free memory
+    pthread_cleanup_pop(1);
+    return NULL;
+}
+
+
+/*
  * This is the base function used for initiating the program execution.
  *
  * Parameters:
@@ -123,9 +269,7 @@ int main(int argc, char *argv[])
     struct addrinfo hints, *servinfo;
     struct sockaddr_storage client_addr;
     socklen_t addr_len = sizeof(client_addr);
-    char buffer[BUFFER_SIZE];
-    ssize_t bytes_received;
-    int status;
+    int status, daemon_mode = 0;
 
     // Set up signal handling
     struct sigaction sa;
@@ -139,7 +283,6 @@ int main(int argc, char *argv[])
     openlog("aesdsocket", LOG_PID | LOG_PERROR, LOG_USER);
 
     // Parse arguments to check for -d option
-    int daemon_mode = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0) {
             daemon_mode = 1;
@@ -197,12 +340,23 @@ int main(int argc, char *argv[])
         close(server_fd);
         return -1;
     }
+
+    /* Initialize the global thread list */
+    LIST_INIT(&thread_list);
+
+    /* Create the timer thread to write timestamps every 10 seconds */
+    if (pthread_create(&timer_thread_id, NULL, timer_thread, NULL) != 0) {
+        syslog(LOG_ERR, "Failed to create timer thread");
+    }
     
     // Main server loop to handle incoming connections
-    while (1) {
+    while (!terminate_program) {
         // Accept connection
-        client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &addr_len);
+        int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &addr_len);
         if (client_fd == -1) {
+            if (terminate_program) {
+                break;
+            }
             syslog(LOG_ERR, "Accept failed");
             continue;
         }
@@ -210,54 +364,56 @@ int main(int argc, char *argv[])
         struct sockaddr_in *client_in = (struct sockaddr_in *)&client_addr;
         syslog(LOG_INFO, "Accepted connection from %s", inet_ntoa(client_in->sin_addr));
 
-        // Open file for appending
-        int file_fd = open(FILE_PATH, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (file_fd == -1) {
-            syslog(LOG_ERR, "Failed to open file");
+        // Allocate a new thread_info structure for this connection
+        struct thread_info *tinfo = malloc(sizeof(struct thread_info));
+        if (!tinfo) {
+            syslog(LOG_ERR, "Failed to allocate memory for thread info");
             close(client_fd);
             continue;
         }
-        
-        // Receive data and write to file
-        while ((bytes_received = recv(client_fd, buffer, BUFFER_SIZE, 0)) > 0) {
-            if (write(file_fd, buffer, bytes_received) == -1) {
-                syslog(LOG_ERR, "Failed to write to file");
-                break;
-            }
+        tinfo->client_fd = client_fd;
 
-            // Check for end of packet based on '\n' as the delimiter
-            if (buffer[bytes_received - 1] == '\n') {
-                break;
-            }
-        }
-        
-        // Close file after writing
-        close(file_fd);
+        // Add the thread info to the global list
+        pthread_mutex_lock(&list_mutex);
+        LIST_INSERT_HEAD(&thread_list, tinfo, entries);
+        pthread_mutex_unlock(&list_mutex);
 
-        // Reopen file for Reading Content
-        file_fd = open(FILE_PATH, O_RDONLY);
-        if (file_fd == -1) {
-            syslog(LOG_ERR, "Failed to open file for reading");
+         // Create a thread to handle the client
+         if (pthread_create(&tinfo->thread_id, NULL, handle_client, tinfo) != 0) {
+            syslog(LOG_ERR, "Failed to create thread");
+            pthread_mutex_lock(&list_mutex);
+            LIST_REMOVE(tinfo, entries);
+            pthread_mutex_unlock(&list_mutex);
             close(client_fd);
+            free(tinfo);
             continue;
-        }
-
-        // Read the file and send its content to the client
-        while ((bytes_received = read(file_fd, buffer, BUFFER_SIZE)) > 0) {
-            send(client_fd, buffer, bytes_received, 0);
-        }
-
-        // Close file after reading
-        close(file_fd);
-
-        syslog(LOG_INFO, "Closed connection from %s", inet_ntoa(client_in->sin_addr));
-
-        // Close Client Connection
-        close(client_fd);
+         }
     }
-    
-    // Cleanup
+
+    if (server_fd != -1){
+        close(server_fd);
+    }
+
+    /* Cancel and join the timer thread */
+    pthread_cancel(timer_thread_id);
+    pthread_join(timer_thread_id, NULL);
+
+    /* Request exit from each thread by canceling them and then join */
+    pthread_mutex_lock(&list_mutex);
+    struct thread_info *entry;
+    for (entry = LIST_FIRST(&thread_list); entry != NULL; ) {
+        struct thread_info *next_entry = LIST_NEXT(entry, entries);
+        pthread_cancel(entry->thread_id);
+        pthread_mutex_unlock(&list_mutex);
+        pthread_join(entry->thread_id, NULL);
+        pthread_mutex_lock(&list_mutex);
+        LIST_REMOVE(entry, entries);
+        free(entry);
+        entry = next_entry;
+    }
+    pthread_mutex_unlock(&list_mutex);
+
+    remove(FILE_PATH);
     closelog();
-    close(server_fd);
     return 0;
 }

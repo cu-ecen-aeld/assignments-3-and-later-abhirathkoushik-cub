@@ -14,15 +14,19 @@
 
 # Check and use gcc cross compile if variable is defined
 ifdef CROSS_COMPILE
-      CC=$(CROSS_COMPILE)gcc
+      CC ?= $(CROSS_COMPILE)gcc
 else
 # Else use native gcc compile
-    CC=gcc
+    CC ?= gcc
 endif
+
+CFLAGS ?= -g -Wall -Werror
+TARGET ?= aesdsocket
+LDFLAGS ?= -lpthread -lrt
 
 all: aesdsocket
 aesdsocket: aesdsocket.c
-	$(CC) -o aesdsocket aesdsocket.c -Wall -Werror
+	$(CC) $(CFLAGS) $^ -o $@ $(INCLUDES) $(LDFLAGS)
 
 # Cleanup of the aesdsocket Script and .o files
 .PHONY: clean
