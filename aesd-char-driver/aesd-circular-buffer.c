@@ -32,16 +32,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     size_t bytes_so_far = 0;
     int i;
     int index;
-    int count;
-
-    /* Determine the number of valid entries.
-     * If the buffer is full, all AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED entries are valid.
-     * If not, valid entries are from index 0 to in_offs - 1.
-     */
-    if(buffer->full)
-        count = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
-    else
-        count = buffer->in_offs;
+    int count = (buffer->full) ? AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED : buffer->in_offs;
 
     /* Iterate over the valid entries starting at out_offs.*/
     for(i = 0; i < count; i++){
@@ -63,10 +54,17 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+struct aesd_buffer_entry* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
+     struct aesd_buffer_entry *overwritten = NULL;
+
+     if (buffer->full){
+        overwritten = &buffer->entry[buffer->out_offs];
+     }
+
      /* Store the new entry at the current write position */
-     buffer->entry[buffer->in_offs] = *add_entry;
+     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+     buffer->entry[buffer->in_offs].size = add_entry->size;
 
      /* Advance the in_offs pointer */
      buffer->in_offs = (buffer->in_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
@@ -82,6 +80,8 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
      } else {
          buffer->full = false;
      }
+
+     return overwritten;
 }
 
 /**
