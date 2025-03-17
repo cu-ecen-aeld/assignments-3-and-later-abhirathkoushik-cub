@@ -137,7 +137,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count, loff
     /* Process newline if encountered */
     if (new_line_pos != NULL)
     {
-        struct aesd_buffer_entry *temp_ptr = aesd_circular_buffer_add_entry(&dev->circ_buf, &dev->working_entry);
+        char *temp_ptr = aesd_circular_buffer_add_entry(&dev->circ_buf, &dev->working_entry);
         if (temp_ptr != NULL)
         {
             kfree(temp_ptr);
