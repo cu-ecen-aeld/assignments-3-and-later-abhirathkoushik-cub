@@ -35,7 +35,14 @@
 
 #define PORT "9000"
 #define BUFFER_SIZE 1024
-#define FILE_PATH "/var/tmp/aesdsocketdata"
+#define USE_AESD_CHAR_DEVICE 1
+
+#ifdef USE_AESD_CHAR_DEVICE
+    #define FILE_PATH "/dev/aesdchar"
+#else
+    #define FILE_PATH "/var/tmp/aesdsocketdata"
+#endif
+
 
 // Global Variables
 volatile sig_atomic_t terminate_program = 0;
@@ -45,8 +52,10 @@ int server_fd=-1;
 pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER; // Protects file write access
 pthread_mutex_t list_mutex = PTHREAD_MUTEX_INITIALIZER; // Protects access to the thread list
 
+#if !USE_AESD_CHAR_DEVICE
 // Declaring Timer Thread
 pthread_t timer_thread_id;
+#endif
 
 /* Structure to hold thread information */
 struct thread_info {
@@ -119,6 +128,7 @@ void daemonize() {
     open("/dev/null", O_WRONLY);  // stderr
 }
 
+#if !USE_AESD_CHAR_DEVICE
 /*
  * This function is used to create and configure the timer thread for timestamps.
  *
@@ -160,7 +170,7 @@ void *timer_thread(void *arg)
     }
     return NULL;
 }
-
+#endif
 
 /*
  * This is a Cleanup function called if a thread is cancelled or is exiting.
@@ -344,10 +354,12 @@ int main(int argc, char *argv[])
     /* Initialize the global thread list */
     LIST_INIT(&thread_list);
 
+    #if !USE_AESD_CHAR_DEVICE
     /* Create the timer thread to write timestamps every 10 seconds */
     if (pthread_create(&timer_thread_id, NULL, timer_thread, NULL) != 0) {
         syslog(LOG_ERR, "Failed to create timer thread");
     }
+    #endif
     
     // Main server loop to handle incoming connections
     while (!terminate_program) {
@@ -394,9 +406,11 @@ int main(int argc, char *argv[])
         close(server_fd);
     }
 
+    #if !USE_AESD_CHAR_DEVICE
     /* Cancel and join the timer thread */
     pthread_cancel(timer_thread_id);
     pthread_join(timer_thread_id, NULL);
+    #endif
 
     /* Request exit from each thread by canceling them and then join */
     pthread_mutex_lock(&list_mutex);
@@ -413,7 +427,10 @@ int main(int argc, char *argv[])
     }
     pthread_mutex_unlock(&list_mutex);
 
+    #if !USE_AESD_CHAR_DEVICE
     remove(FILE_PATH);
+    #endif
+    
     closelog();
     return 0;
 }
