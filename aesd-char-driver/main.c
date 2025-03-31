@@ -18,6 +18,7 @@
 #include <linux/cdev.h>
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -157,6 +158,8 @@ struct file_operations aesd_fops = {
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+    .llseek  =  aesd_llseek,  
+    .unlocked_ioctl = aesd_unlocked_ioctl,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)
@@ -224,6 +227,101 @@ void aesd_cleanup_module(void)
     unregister_chrdev_region(devno, 1);
 }
 
+loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    struct aesd_dev *dev = filp->private_data;
+    loff_t newpos;
+    loff_t total_size = 0;
+    int i = 0;
+    struct aesd_buffer_entry *entry;
+
+    /* Lock the device to safely access the circular buffer */
+    if (mutex_lock_interruptible(&dev->lock))
+        return -ERESTARTSYS;
+
+    /* Sum up the sizes of all valid entries in the circular buffer */
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &dev->circ_buf, i) {
+        if (entry->buffptr)
+            total_size += entry->size;
+    }
+
+    switch (whence) {
+    case SEEK_SET:
+        newpos = offset;
+        break;
+    case SEEK_CUR:
+        newpos = filp->f_pos + offset;
+        break;
+    case SEEK_END:
+        newpos = total_size + offset;
+        break;
+    default:
+        mutex_unlock(&dev->lock);
+        return -EINVAL;
+    }
+
+    if (newpos < 0) {
+        mutex_unlock(&dev->lock);
+        return -EINVAL;
+    }
+
+    filp->f_pos = newpos;
+    mutex_unlock(&dev->lock);
+    return newpos;
+}
+
+long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    struct aesd_dev *dev = filp->private_data;
+    long ret = 0;
+    struct aesd_seekto seekto;
+    struct aesd_buffer_entry *entry = NULL;
+    int i;
+    int command_index = 0;
+    loff_t cumulative_offset = 0;
+    loff_t new_file_pos = 0;
+    bool found = false;
+
+    if (cmd == AESDCHAR_IOCSEEKTO) {
+        if (copy_from_user(&seekto, (struct aesd_seekto*) arg, sizeof(seekto)))
+            return -EFAULT;
+
+        /* Lock the device while processing the circular buffer */
+        if (mutex_lock_interruptible(&dev->lock))
+            return -ERESTARTSYS;
+
+        AESD_CIRCULAR_BUFFER_FOREACH(entry, &dev->circ_buf, i) {
+            if (command_index == seekto.write_cmd) {
+                /* Verify that the provided offset is within the command */
+                if (seekto.write_cmd_offset > entry->size) {
+                    ret = -EINVAL;
+                    goto unlock;
+                }
+                new_file_pos = cumulative_offset + seekto.write_cmd_offset;
+                found = true;
+                break;
+            }
+            cumulative_offset += entry->size;
+            command_index++;
+        }
+
+        if (!found) {
+            ret = -EINVAL;
+            goto unlock;
+        }
+
+        /* Update the file position with the computed offset */
+        filp->f_pos = new_file_pos;
+        ret = 0;
+
+    } else {
+        ret = -ENOTTY;
+    }
+
+unlock:
+    mutex_unlock(&dev->lock);
+    return ret;
+}
 
 
 module_init(aesd_init_module);
