@@ -276,50 +276,37 @@ long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     long ret = 0;
     struct aesd_seekto seekto;
     struct aesd_buffer_entry *entry = NULL;
-    int i;
     int command_index = 0;
-    loff_t cumulative_offset = 0;
-    loff_t new_file_pos = 0;
-    bool found = false;
+    int trav = dev->circ_buf.out_offs;
+    int byte_count = 0;
 
     if (cmd == AESDCHAR_IOCSEEKTO) {
-        if (copy_from_user(&seekto, (struct aesd_seekto*) arg, sizeof(seekto)))
+        if (copy_from_user(&seekto, (struct aesd_seekto*) arg, sizeof(struct aesdseekto)))
             return -EFAULT;
 
-        /* Lock the device while processing the circular buffer */
-        if (mutex_lock_interruptible(&dev->lock))
-            return -ERESTARTSYS;
-
-        AESD_CIRCULAR_BUFFER_FOREACH(entry, &dev->circ_buf, i) {
-            if (command_index == seekto.write_cmd) {
-                /* Verify that the provided offset is within the command */
-                if (seekto.write_cmd_offset > entry->size) {
-                    ret = -EINVAL;
-                    goto unlock;
-                }
-                new_file_pos = cumulative_offset + seekto.write_cmd_offset;
-                found = true;
-                break;
-            }
-            cumulative_offset += entry->size;
-            command_index++;
-        }
-
-        if (!found) {
+        command_index = seekto.write_cmd;
+        command_index = (command_index + dev->circ_buf.out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        if ((command_index > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) || (seekto.write_cmd_offset > dev->circ_buf.entry[command_index].size))
+        {
             ret = -EINVAL;
             goto unlock;
         }
 
-        /* Update the file position with the computed offset */
-        filp->f_pos = new_file_pos;
-        ret = 0;
+        /* Lock the device while processing the circular buffer */
+        if (mutex_lock_interruptible(&dev->lock))
+        return -ERESTARTSYS;
 
-    } else {
-        ret = -ENOTTY;
-    }
+        while(trav != command_index)
+        {
+            byte_count += dev->circ_buf.entry[trav].size;
+            trav = (trav + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        }
+
+        /* Update the file position with the computed offset */
+        filp->f_pos = byte_count + seekto.write_cmd_offset;
+        mutex_unlock(&dev->lock);
 
 unlock:
-    mutex_unlock(&dev->lock);
     return ret;
 }
 

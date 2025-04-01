@@ -218,6 +218,11 @@ void *handle_client(void *arg)
     /* Register a cleanup handler to ensure thread cleanup on exit */
     pthread_cleanup_push(thread_cleanup, tinfo);
 
+    int file_fd = open(FILE_PATH, O_CREAT | O_APPEND | O_RDWR, S_IRWXU | S_IRGRP | S_IROTH);
+    if (file_fd == -1) {
+        syslog(LOG_ERR, "Failed to open device file %s: %s", FILE_PATH, strerror(errno));
+    }
+
     while (1) {
         bytes_received = recv(client_fd, buffer, BUFFER_SIZE, 0);
         if (bytes_received <= 0) {
@@ -230,8 +235,6 @@ void *handle_client(void *arg)
         if (strncmp(buffer, "AESDCHAR_IOCSEEKTO:", 19) == 0) {
             unsigned int write_cmd, write_cmd_offset;
             if (sscanf(buffer + 19, "%u,%u", &write_cmd, &write_cmd_offset) == 2) {
-                
-                int file_fd = open(FILE_PATH, O_RDWR);
                 if (file_fd < 0) {
                     syslog(LOG_ERR, "Failed to open file for ioctl: %s", strerror(errno));
                 } else {
@@ -260,7 +263,6 @@ void *handle_client(void *arg)
         pthread_mutex_lock(&file_mutex);
 
         // Open file for appending
-        int file_fd = open(FILE_PATH, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (file_fd == -1) {
             syslog(LOG_ERR, "Failed to open file");
             pthread_mutex_unlock(&file_mutex);
